@@ -1,0 +1,2 @@
+libraylib.so.550 filter=lfs diff=lfs merge=lfs -text
+libraylib.so filter=lfs diff=lfs merge=lfs -text
