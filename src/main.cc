@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <fmt/base.h>
+#include <random>
 #include <raylib.h>
 #include "raymath.h"
 #include <fmt/format.h>
@@ -11,10 +12,17 @@
 #define WIDTH 800
 #define HEIGHT 800
 
+uint64_t get_time_ms() {
+  auto now = std::chrono::high_resolution_clock::now();
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             now.time_since_epoch())
+      .count();
+}
+
+
 enum GridState {
   GRID_STATE_EMPTY = 0,
   GRID_STATE_FOOD,
-  GRID_STATE_BODY,
 };
 
 class Snake {
@@ -22,11 +30,8 @@ public:
   Vector2 pos;
   Vector2 vel;
 
-  uint64_t last_updated_ms;
-
-
 public:
-  Snake() : pos(Vector2Zero()), vel(Vector2Zero()), last_updated_ms(0) {}
+  Snake() : pos(Vector2Zero()), vel(Vector2Zero()) {}
   ~Snake() = default;
 
   void handle_input() {
@@ -51,39 +56,47 @@ public:
     }
   }
 
-  uint64_t get_time_ms() {
-    auto now = std::chrono::high_resolution_clock::now();
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-               now.time_since_epoch())
-        .count();
-  }
-
-  void update(uint64_t speed_ms) {
-    uint64_t cur_time = get_time_ms();
-    uint64_t dt_ms = cur_time - last_updated_ms;
-    if (dt_ms < speed_ms) { return; }
-
-    last_updated_ms = cur_time;
-
+  void update() {
     pos.x += vel.x;
     pos.y += vel.y;
   }
 
+  void grow() {
+    fmt::println("TODO: implement grow()");
+  }
+};
+
+
+class UniformRandom {
+private:
+  std::random_device rd;
+  std::mt19937 gen;
+  std::uniform_real_distribution<> rand;
+
+public:
+  UniformRandom() : rd(), gen(rd()), rand(0, 1) {}
+  float random() { return rand(gen); }
 };
 
 
 class Grid {
+public:
+  size_t width;
+  size_t height;
+
 private:
   std::vector<GridState> grid;
   size_t cell_size;
   Snake snake;
+  uint64_t speed_ms;
+
+  UniformRandom rand;
+  uint64_t last_updated_ms = 0;
 
 public:
-  Grid(size_t width, size_t height, size_t size) {
-    this->width = width / size;
-    this->height = height / size;
-    this->cell_size = size;
-
+  Grid(size_t width, size_t height, size_t size, uint64_t initial_speed)
+      : width(width / size), height(height / size), cell_size(size),
+        speed_ms(initial_speed) {
     snake.pos.x = this->width / 2.f;
     snake.pos.y = this->height / 2.f;
 
@@ -104,15 +117,46 @@ public:
         return BLACK;
       case GRID_STATE_FOOD:
         return RED;
-      case GRID_STATE_BODY:
-        return GREEN;
     }
     assert(0);
   }
 
-  Snake& get_snake() { return this->snake; }
+  void spawn_food() {
+    const int x = rand.random() * this->width;
+    const int y = rand.random() * this->height;
+    fmt::println("spawn_food: ({}, {})", x, y);
 
-  void update() {}
+    fmt::println("TODO: spawn_food handle collisions");
+    at(x, y) = GRID_STATE_FOOD;
+  }
+
+  void handle_input() {
+    snake.handle_input();
+  }
+
+  void update() {
+    uint64_t cur_time = get_time_ms();
+    uint64_t dt_ms = cur_time - last_updated_ms;
+    if (dt_ms < speed_ms) { return; }
+    last_updated_ms = cur_time;
+
+
+    snake.update();
+    GridState& snake_head_grid = at(snake.pos.x, snake.pos.y);
+
+    switch (snake_head_grid) {
+      case GRID_STATE_FOOD:
+        snake.grow();
+        snake_head_grid = GRID_STATE_EMPTY;
+        spawn_food();
+        speed_ms *= 0.9f;
+        break;
+
+      case GRID_STATE_EMPTY:
+      default:
+        break;
+    }
+  }
 
   void draw() {
     /**
@@ -134,29 +178,16 @@ public:
     Vector2 snake_cell = cell_at(snake.pos.x, snake.pos.y);
     DrawRectangleV(snake_cell, {(float)cell_size, (float)cell_size}, GREEN);
   }
-
-public:
-  size_t width;
-  size_t height;
 };
-
-
-
-class Food {};
 
 
 int main() {
   InitWindow(WIDTH, HEIGHT, "Snake");
   SetTargetFPS(60);
 
-  Grid grid(WIDTH, HEIGHT, 20);
-  for (size_t y = 0; y < grid.height; y++) {
-    for (size_t x = 0; x < grid.width; x++) {
-      grid.at(x, y) = (x+y) % 2 == 0 ? GRID_STATE_FOOD : GRID_STATE_EMPTY;
-    }
-  }
-
-  Snake& snake = grid.get_snake();
+  const uint64_t initial_speed = 500;
+  Grid grid(WIDTH, HEIGHT, 20, initial_speed);
+  grid.spawn_food();
 
   while (!WindowShouldClose()) {
     // IO
@@ -165,12 +196,12 @@ int main() {
         CloseWindow();
         break;
       }
-      snake.handle_input();
+      grid.handle_input();
     }
 
     // UPDATE
     {
-      snake.update(500);
+      grid.update();
     }
 
     // DRAW
