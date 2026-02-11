@@ -27,12 +27,15 @@ enum GridState {
 
 class Snake {
 public:
-  Vector2 pos;
+  std::vector<Vector2> body;
+
   Vector2 vel;
 
 public:
-  Snake() : pos(Vector2Zero()), vel(Vector2Zero()) {}
+  Snake() : body(), vel(Vector2Zero()) { body.push_back(Vector2Zero()); }
   ~Snake() = default;
+
+  Vector2& head() { return body[0]; }
 
   void handle_input() {
     if (IsKeyPressed(KEY_UP)) {
@@ -57,12 +60,20 @@ public:
   }
 
   void update() {
-    pos.x += vel.x;
-    pos.y += vel.y;
+    /**
+     * Iterate from the tail up till the head (exclusively), shifting them ahead.
+     */
+    for (size_t i = body.size() - 1; i > 0; i--) {
+      body[i] = body[i - 1];
+    }
+
+    head().x += vel.x;
+    head().y += vel.y;
   }
 
   void grow() {
-    fmt::println("TODO: implement grow()");
+    const Vector2 tail = body.back();
+    body.push_back({ .x = tail.x, .y = tail.y });
   }
 };
 
@@ -97,8 +108,8 @@ public:
   Grid(size_t width, size_t height, size_t size, uint64_t initial_speed)
       : width(width / size), height(height / size), cell_size(size),
         speed_ms(initial_speed) {
-    snake.pos.x = this->width / 2.f;
-    snake.pos.y = this->height / 2.f;
+    snake.head().x = this->width / 2.f;
+    snake.head().y = this->height / 2.f;
 
     this->grid.resize(this->width * this->height);
     std::fill(this->grid.begin(), this->grid.end(), GRID_STATE_EMPTY);
@@ -124,8 +135,8 @@ public:
   void spawn_food() {
     const int x = rand.random() * this->width;
     const int y = rand.random() * this->height;
-    fmt::println("spawn_food: ({}, {})", x, y);
 
+    fmt::println("spawn_food: ({}, {})", x, y);
     fmt::println("TODO: spawn_food handle collisions");
     at(x, y) = GRID_STATE_FOOD;
   }
@@ -134,6 +145,13 @@ public:
     snake.handle_input();
   }
 
+  void increase_speed() {
+    speed_ms *= 0.9f;
+    speed_ms = std::clamp(speed_ms, 100UL, 1000UL);
+  }
+
+  // TODO: handle eating itself.
+  // TODO: handle going off board.
   void update() {
     uint64_t cur_time = get_time_ms();
     uint64_t dt_ms = cur_time - last_updated_ms;
@@ -142,14 +160,15 @@ public:
 
 
     snake.update();
-    GridState& snake_head_grid = at(snake.pos.x, snake.pos.y);
+    GridState& snake_head_grid = at(snake.head().x, snake.head().y);
 
     switch (snake_head_grid) {
       case GRID_STATE_FOOD:
-        snake.grow();
         snake_head_grid = GRID_STATE_EMPTY;
+
+        snake.grow();
         spawn_food();
-        speed_ms *= 0.9f;
+        increase_speed();
         break;
 
       case GRID_STATE_EMPTY:
@@ -175,8 +194,11 @@ public:
     /**
      * Draw the snake.
      */
-    Vector2 snake_cell = cell_at(snake.pos.x, snake.pos.y);
-    DrawRectangleV(snake_cell, {(float)cell_size, (float)cell_size}, GREEN);
+    for (Vector2& v : snake.body) {
+      Vector2 snake_cell = cell_at(v.x, v.y);
+      DrawRectangleV(snake_cell, {(float)cell_size, (float)cell_size}, GREEN);
+    }
+
   }
 };
 
@@ -185,8 +207,8 @@ int main() {
   InitWindow(WIDTH, HEIGHT, "Snake");
   SetTargetFPS(60);
 
-  const uint64_t initial_speed = 500;
-  Grid grid(WIDTH, HEIGHT, 20, initial_speed);
+  const uint64_t initial_speed = 250;
+  Grid grid(WIDTH, HEIGHT, 30, initial_speed);
   grid.spawn_food();
 
   while (!WindowShouldClose()) {
