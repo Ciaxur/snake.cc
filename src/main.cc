@@ -169,13 +169,12 @@ public:
   ~Game() = default;
 
   void increase_speed() {
-    speed_ms -= 10;
+    speed_ms -= 5;
     speed_ms = std::clamp(speed_ms, 50UL, 1000UL);
   }
 
   void handle_input() { snake.handle_input(); }
 
-  // TODO: handle going off board.
   void update() {
     uint64_t cur_time = get_time_ms();
     uint64_t dt_ms = cur_time - last_updated_ms;
@@ -200,6 +199,17 @@ public:
         break;
     }
 
+    /**
+     * Handle out of bounds death.
+     */
+    {
+      if (snake.head().x > grid.width || snake.head().x < 0) { is_running = false; }
+      else if (snake.head().x > grid.height || snake.head().y < 0) { is_running = false; }
+    }
+
+    /**
+     * Update entire body.
+     */
     if (snake.body.size() > 2) {
       for (size_t i = 1; i < snake.body.size(); i++) {
         const Vector2 &body_part = snake.body[i];
@@ -235,7 +245,7 @@ public:
     grid.at(x, y) = GRID_STATE_FOOD;
   }
 
-  uint64_t get_score() { return snake.body.size(); }
+  uint64_t get_score() { return snake.body.size() - 1; }
   uint64_t get_speed() { return speed_ms; }
 };
 
@@ -244,7 +254,7 @@ int main() {
   InitWindow(WIDTH, HEIGHT, "Snake");
   SetTargetFPS(60);
 
-  const uint64_t initial_speed = 100;
+  const uint64_t initial_speed = 150;
   Game game(WIDTH, HEIGHT, 30, initial_speed);
   game.spawn_food();
 
