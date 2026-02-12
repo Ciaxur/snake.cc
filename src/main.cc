@@ -28,34 +28,41 @@ enum GridState {
 class Snake {
 public:
   std::vector<Vector2> body;
+  bool input_consumed;
 
   Vector2 vel;
 
 public:
-  Snake() : body(), vel(Vector2Zero()) { body.push_back(Vector2Zero()); }
+  Snake() : body(), input_consumed(true), vel(Vector2Zero()) { body.push_back(Vector2Zero()); }
   ~Snake() = default;
 
   Vector2& head() { return body[0]; }
 
   void handle_input() {
+    if (!input_consumed) { return; }
+
     if (IsKeyPressed(KEY_UP)) {
       if (vel.y != 0.f) { return; }
       vel.y = -1.f;
       vel.x = 0.f;
+      input_consumed = false;
     } else if (IsKeyPressed(KEY_DOWN)) {
       if (vel.y != 0.f) { return; }
       vel.y = 1.f;
       vel.x = 0.f;
+      input_consumed = false;
     }
 
     else if (IsKeyPressed(KEY_RIGHT)) {
       if (vel.x != 0.f) { return; }
       vel.x = 1.f;
       vel.y = 0.f;
+      input_consumed = false;
     } else if (IsKeyPressed(KEY_LEFT)) {
       if (vel.x != 0.f) { return; }
       vel.x = -1.f;
       vel.y = 0.f;
+      input_consumed = false;
     }
   }
 
@@ -69,6 +76,8 @@ public:
 
     head().x += vel.x;
     head().y += vel.y;
+
+    if (!input_consumed) { input_consumed = true; }
   }
 
   void grow() {
@@ -94,23 +103,15 @@ class Grid {
 public:
   size_t width;
   size_t height;
+  size_t cell_size;
 
 private:
   std::vector<GridState> grid;
-  size_t cell_size;
-  Snake snake;
-  uint64_t speed_ms;
 
-  UniformRandom rand;
-  uint64_t last_updated_ms = 0;
 
 public:
-  Grid(size_t width, size_t height, size_t size, uint64_t initial_speed)
-      : width(width / size), height(height / size), cell_size(size),
-        speed_ms(initial_speed) {
-    snake.head().x = this->width / 2.f;
-    snake.head().y = this->height / 2.f;
-
+  Grid(size_t width, size_t height, size_t size)
+      : width(width / size), height(height / size), cell_size(size) {
     this->grid.resize(this->width * this->height);
     std::fill(this->grid.begin(), this->grid.end(), GRID_STATE_EMPTY);
   }
@@ -132,25 +133,48 @@ public:
     assert(0);
   }
 
-  void spawn_food() {
-    const int x = rand.random() * this->width;
-    const int y = rand.random() * this->height;
-
-    fmt::println("spawn_food: ({}, {})", x, y);
-    fmt::println("TODO: spawn_food handle collisions");
-    at(x, y) = GRID_STATE_FOOD;
+  void draw() {
+    for (size_t y = 0; y < height; y++) {
+      for (size_t x = 0; x < width; x++ ) {
+        DrawRectangleV(
+          cell_at(x, y),
+          { .x = (float) cell_size, .y = (float) cell_size },
+          get_color(at(x, y))
+        );
+      }
+    }
   }
+};
 
-  void handle_input() {
-    snake.handle_input();
+
+class Game {
+private:
+  Grid grid;
+  Snake snake;
+
+  uint64_t speed_ms;
+  uint64_t last_updated_ms;
+
+  UniformRandom rand;
+
+public:
+  bool is_running = true;
+
+public:
+  Game(size_t width, size_t height, size_t size, uint64_t initial_speed)
+      : grid(width, height, size), speed_ms(initial_speed), last_updated_ms(0) {
+    snake.head().x = grid.width / 2.f;
+    snake.head().y = grid.height / 2.f;
   }
+  ~Game() = default;
 
   void increase_speed() {
-    speed_ms *= 0.9f;
-    speed_ms = std::clamp(speed_ms, 100UL, 1000UL);
+    speed_ms -= 10;
+    speed_ms = std::clamp(speed_ms, 50UL, 1000UL);
   }
 
-  // TODO: handle eating itself.
+  void handle_input() { snake.handle_input(); }
+
   // TODO: handle going off board.
   void update() {
     uint64_t cur_time = get_time_ms();
@@ -160,7 +184,7 @@ public:
 
 
     snake.update();
-    GridState& snake_head_grid = at(snake.head().x, snake.head().y);
+    GridState& snake_head_grid = grid.at(snake.head().x, snake.head().y);
 
     switch (snake_head_grid) {
       case GRID_STATE_FOOD:
@@ -175,31 +199,44 @@ public:
       default:
         break;
     }
+
+    if (snake.body.size() > 2) {
+      for (size_t i = 1; i < snake.body.size(); i++) {
+        const Vector2 &body_part = snake.body[i];
+        if (snake.head().x == body_part.x && snake.head().y == body_part.y) {
+          is_running = false;
+        }
+      }
+    }
   }
 
   void draw() {
     /**
      * Draw the grid.
      */
-    for (size_t y = 0; y < height; y++) {
-      for (size_t x = 0; x < width; x++ ) {
-        DrawRectangleV(
-          cell_at(x, y),
-          { .x = (float) cell_size, .y = (float) cell_size },
-          get_color(at(x, y))
-        );
-      }
-    }
+    grid.draw();
 
     /**
      * Draw the snake.
      */
     for (Vector2& v : snake.body) {
-      Vector2 snake_cell = cell_at(v.x, v.y);
-      DrawRectangleV(snake_cell, {(float)cell_size, (float)cell_size}, GREEN);
+      Vector2 snake_cell = grid.cell_at(v.x, v.y);
+      DrawRectangleV(snake_cell, {(float)grid.cell_size, (float)grid.cell_size}, GREEN);
     }
-
+    Vector2 snake_head_cell = grid.cell_at(snake.head().x, snake.head().y);
+    DrawRectangleV(snake_head_cell, {(float)grid.cell_size, (float)grid.cell_size}, DARKGREEN);
   }
+
+  void spawn_food() {
+    const int x = rand.random() * grid.width;
+    const int y = rand.random() * grid.height;
+
+    fmt::println("spawn_food: ({}, {})", x, y);
+    grid.at(x, y) = GRID_STATE_FOOD;
+  }
+
+  uint64_t get_score() { return snake.body.size(); }
+  uint64_t get_speed() { return speed_ms; }
 };
 
 
@@ -207,9 +244,9 @@ int main() {
   InitWindow(WIDTH, HEIGHT, "Snake");
   SetTargetFPS(60);
 
-  const uint64_t initial_speed = 250;
-  Grid grid(WIDTH, HEIGHT, 30, initial_speed);
-  grid.spawn_food();
+  const uint64_t initial_speed = 100;
+  Game game(WIDTH, HEIGHT, 30, initial_speed);
+  game.spawn_food();
 
   while (!WindowShouldClose()) {
     // IO
@@ -218,12 +255,14 @@ int main() {
         CloseWindow();
         break;
       }
-      grid.handle_input();
+      if (game.is_running) {
+        game.handle_input();
+      }
     }
 
     // UPDATE
-    {
-      grid.update();
+    if (game.is_running) {
+      game.update();
     }
 
     // DRAW
@@ -231,9 +270,32 @@ int main() {
       BeginDrawing();
       ClearBackground(BLACK);
 
-      grid.draw();
+      game.draw();
+      if (!game.is_running) {
+        DrawText(
+          "GAME OVER",
+          (WIDTH / 2) - 90,
+          HEIGHT / 2,
+          32,
+          WHITE
+        );
+      }
 
       DrawFPS(WIDTH - 100.f, 10.f);
+      DrawText(
+        fmt::format("Score: {}", game.get_score()).c_str(),
+        WIDTH - 100.f,
+        40.f,
+        18,
+        GREEN
+      );
+      DrawText(
+        fmt::format("Speed: {}", game.get_speed()).c_str(),
+        WIDTH - 100.f,
+        60.f,
+        18,
+        GREEN
+      );
       EndDrawing();
     }
   }
